@@ -6,8 +6,8 @@ import os
 import torch
 import torch.multiprocessing as mp
 
+import gym
 import my_optim
-from envs import create_atari_env
 from model import ActorCritic
 from test import test
 from train import train
@@ -37,21 +37,22 @@ parser.add_argument('--num-steps', type=int, default=20,
 parser.add_argument('--max-episode-length', type=int, default=1000000,
                     help='maximum length of an episode (default: 1000000)')
 parser.add_argument('--env-name', default='PongDeterministic-v4',
-                    help='environment to train on (default: PongDeterministic-v4)')
+                    help='environment to train on (default: PongDeterministic-v4)') #
 parser.add_argument('--no-shared', default=False,
                     help='use an optimizer without shared momentum.')
 
 
 if __name__ == '__main__':
+
     os.environ['OMP_NUM_THREADS'] = '1'
     os.environ['CUDA_VISIBLE_DEVICES'] = ""
 
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
-    env = create_atari_env(args.env_name)
+    env = gym.make(args.env_name)
     shared_model = ActorCritic(
-        env.observation_space.shape[0], env.action_space)
+        env.observation_space.shape[2], env.action_space)
     shared_model.share_memory()
 
     if args.no_shared:

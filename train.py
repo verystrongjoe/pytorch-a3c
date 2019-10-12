@@ -2,9 +2,9 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from envs import create_atari_env
 from model import ActorCritic
-
+import gym
+import numpy as np
 
 def ensure_shared_grads(model, shared_model):
     for param, shared_param in zip(model.parameters(),
@@ -17,10 +17,10 @@ def ensure_shared_grads(model, shared_model):
 def train(rank, args, shared_model, counter, lock, optimizer=None):
     torch.manual_seed(args.seed + rank)
 
-    env = create_atari_env(args.env_name)
+    env = gym.make(args.env_name)
     env.seed(args.seed + rank)
 
-    model = ActorCritic(env.observation_space.shape[0], env.action_space)
+    model = ActorCritic(env.observation_space.shape[2], env.action_space)
 
     if optimizer is None:
         optimizer = optim.Adam(shared_model.parameters(), lr=args.lr)
@@ -28,6 +28,10 @@ def train(rank, args, shared_model, counter, lock, optimizer=None):
     model.train()
 
     state = env.reset()
+
+    state = np.transpose(state, (2,0,1))
+    state = np.ascontiguousarray(state, dtype=np.float32) / 255
+
     state = torch.from_numpy(state)
     done = True
 
@@ -49,8 +53,7 @@ def train(rank, args, shared_model, counter, lock, optimizer=None):
 
         for step in range(args.num_steps):
             episode_length += 1
-            value, logit, (hx, cx) = model((state.unsqueeze(0),
-                                            (hx, cx)))
+            value, logit, (hx, cx) = model((state.unsqueeze(0), (hx, cx)))
             prob = F.softmax(logit, dim=-1)
             log_prob = F.log_softmax(logit, dim=-1)
             entropy = -(log_prob * prob).sum(1, keepdim=True)
@@ -69,6 +72,9 @@ def train(rank, args, shared_model, counter, lock, optimizer=None):
             if done:
                 episode_length = 0
                 state = env.reset()
+
+            state = np.transpose(state, (2,0,1))
+            state = np.ascontiguousarray(state, dtype=np.float32) / 255
 
             state = torch.from_numpy(state)
             values.append(value)

@@ -1,3 +1,4 @@
+import numpy as np
 import time
 from collections import deque
 
@@ -6,19 +7,22 @@ import torch.nn.functional as F
 
 from envs import create_atari_env
 from model import ActorCritic
-
+import gym
 
 def test(rank, args, shared_model, counter):
     torch.manual_seed(args.seed + rank)
 
-    env = create_atari_env(args.env_name)
+    env = gym.make(args.env_name)
     env.seed(args.seed + rank)
 
-    model = ActorCritic(env.observation_space.shape[0], env.action_space)
+    model = ActorCritic(env.observation_space.shape[2], env.action_space)
 
     model.eval()
 
     state = env.reset()
+
+    state = np.transpose(state, (2,0,1))
+    state = np.ascontiguousarray(state, dtype=np.float32) / 255
     state = torch.from_numpy(state)
     reward_sum = 0
     done = True
@@ -28,8 +32,10 @@ def test(rank, args, shared_model, counter):
     # a quick hack to prevent the agent from stucking
     actions = deque(maxlen=100)
     episode_length = 0
+
     while True:
         episode_length += 1
+
         # Sync with the shared model
         if done:
             model.load_state_dict(shared_model.state_dict())
@@ -41,10 +47,15 @@ def test(rank, args, shared_model, counter):
 
         with torch.no_grad():
             value, logit, (hx, cx) = model((state.unsqueeze(0), (hx, cx)))
+
         prob = F.softmax(logit, dim=-1)
         action = prob.max(1, keepdim=True)[1].numpy()
 
         state, reward, done, _ = env.step(action[0, 0])
+
+        state = np.transpose(state, (2, 0, 1))
+        state = np.ascontiguousarray(state, dtype=np.float32) / 255
+
         done = done or episode_length >= args.max_episode_length
         reward_sum += reward
 
@@ -63,6 +74,10 @@ def test(rank, args, shared_model, counter):
             episode_length = 0
             actions.clear()
             state = env.reset()
+
+            state = np.transpose(state, (2,0,1))
+            state = np.ascontiguousarray(state, dtype=np.float32) / 255
+
             time.sleep(60)
 
         state = torch.from_numpy(state)
